@@ -1,0 +1,107 @@
+- hosts: localhost
+  connection: local
+
+  vars:
+    pip_install_packages:
+      - name: docker
+
+    drone_database_driver: mysql
+    drone_database_datasource: "root@tcp(127.0.0.1:3306)/drone"
+
+    # drone_gitlab_server: "https://pwslab.org"
+    # drone_gitlab_client_id: ""
+    # drone_gitlab_client_secret: ""
+
+    drone_server_enable: "true"
+    drone_version: "latest"
+    drone_server_host: "368a7a66.ngrok.io"
+    drone_server_proto: "https"
+    drone_rpc_secret: "30075d074bfd9e74cfd0b84a5886b986"
+
+    drone_agent_enable: "true"
+    drone_version: "latest"
+    drone_rpc_server: "http://192.168.64.2:8080"
+    drone_rpc_secret: "30075d074bfd9e74cfd0b84a5886b986"
+
+  tasks:
+      
+    -   name: Check the version of release
+        command: hostnamectl
+        register: os_check
+        ignore_errors: yes
+
+    - name: Install Role PIP
+      local_action: command ansible-galaxy install -f geerlingguy.pip 
+
+    - name: Install Role Docker
+      local_action: command ansible-galaxy install -f geerlingguy.docker
+
+    - name: Install Role Drone
+      local_action: command ansible-galaxy install -f appleboy.drone
+
+    - name: Check if PIP is already installed
+      stat: path=/usr/bin/pip
+      register: pip_exists
+
+    - name: Check if Docker is already installed
+      stat: path=/usr/bin/docker
+      register: docker_exists
+
+    - name: Applying role PIP
+      command: mv ~/.ansible/roles/geerlingguy.pip ~/.ansible/roles/pwslab.pip
+      when: not pip_exists.stat.exists
+      ignore_errors: yes
+
+    - name: Applying role Docker
+      command: mv ~/.ansible/roles/geerlingguy.docker ~/.ansible/roles/pwslab.docker
+      when: not docker_exists.stat.exists
+      ignore_errors: yes
+
+    - name: Applying role Drone
+      command: mv ~/.ansible/roles/appleboy.drone ~/.ansible/roles/pwslab.drone
+      ignore_errors: yes
+
+    - name: Applying replacement on 20.04 or 8
+      lineinfile:
+          dest: ~/.ansible/roles/pwslab.pip/defaults/main.yml
+          regexp: '^pip_package: '
+          line: 'pip_package: python3-pip'
+          state: present
+      when:
+        - os_check.stdout | regex_search("CentOS Linux 8") or os_check.stdout | regex_search("Ubuntu 20.04")
+        - not pip_exists.stat.exists
+
+    -   name: Applying replacement 
+        lineinfile:
+            dest: /root/.ansible/roles/pwslab.drone/meta/main.yml
+            regexp: '^(.*)role: geerlingguy.docker(.*)$'
+            line: '  - { role: pwslab.docker }'
+            state: present
+
+    -   name: Absent the Irrelevant files - Ubuntu 20
+        file:
+          path: /etc/apt/sources.list.d/ansible-ubuntu-ansible-focal.list
+          state: absent
+        when:
+          - os_check.stdout | regex_search("Ubuntu 20")
+
+    - name: Installing PIP
+      include_role:
+        name: pwslab.pip
+      when: not pip_exists.stat.exists
+    
+    - name: Installing Docker
+      include_role:
+          name: pwslab.docker
+      when: not docker_exists.stat.exists
+
+    -   name: install python-docker
+        package:
+            name: python-docker
+            state: present
+        when:
+            - os_check.stdout | regex_search("CentOS Linux 7") or os_check.stdout | regex_search("Ubuntu 18.04")
+
+    - name: Installing Drone
+      include_role:
+          name: pwslab.drone
